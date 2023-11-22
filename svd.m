@@ -42,10 +42,8 @@ function [q, V, Q_0, Q,S,R] = UpdateISVD3(q, V, Q_0, Q, S, R, u_l_new, W, tol)
     if p < tol
         q = q + 1;
         V{q} = Q_0' * d;
-        fprintf("here")
     else
         if q > 0
-            fprintf("there.")
             k = size(S,1);
             Y = [S, cell2mat(V)]; 
             [Qy, Sy, Ry] = svd(Y, 'econ');
@@ -53,7 +51,6 @@ function [q, V, Q_0, Q,S,R] = UpdateISVD3(q, V, Q_0, Q, S, R, u_l_new, W, tol)
             R1 = Ry(1:k,:); R2 = Ry(k+1:end,:); 
             R = [R*R1; R2];
             d = Qy' * d;
-            %clear Y Qy Sy Ry
         end
         V = {}; q = 0;
         
