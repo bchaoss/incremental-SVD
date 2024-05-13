@@ -1,5 +1,5 @@
 # Implementation of incremental SVD algorithm (iSVD for short) from [Brand, 2002]
-# Time: 2023/12/26
+# Time: 2024/5/13
 # Author: bchaoss
 # Reference: Brand, Matthew. “Incremental Singular Value Decomposition of Uncertain Data with Missing Values.” European Conference on Computer Vision (2002).
 
@@ -9,37 +9,38 @@ from numpy import matmul, sqrt, block, shape, eye, zeros, hstack, vstack
 from numpy.linalg import svd, norm
 from numpy.random import randn
 
+# reOrthogonalization
 
-def initializeISVD(u1, W):
-    S = sqrt(u1.T @ W @ u1)
-    Q = u1 / S
-    R = eye(1, 1)
+
+def modified_gram_schmidt(U, tol):
+    if np.abs(U[:, -1].T @ U[:, 0]) > tol:
+        k = U.shape[1]
+        for i in range(k):
+            a = U[:, i]
+            for j in range(i):
+                U[:, i] = U[:, i] - ((a.T @ U[:, j]) /
+                                     (U[:, j].T @ U[:, j])) * U[:, j]
+            norm = np.sqrt(U[:, i].T @ U[:, i])
+            U[:, i] = U[:, i] / norm
+    return U
+
+
+def initializeISVD(u1):
+    S = sqrt(u1.T @ u1)
+    U = u1 / S
+    V = eye(1, 1)
 
     S *= eye(1, 1)
-    Q = Q.reshape((Q.shape[0], 1))
-    return Q, S, R
+    U = U.reshape((U.shape[0], 1))
+    return U, S, V
 
 
-# reOrthogonalization
-def modified_gram_schmidt(Q, W, tol):
-    if np.abs(Q[:, -1].T @ W @ Q[:, 0]) > tol:
-        k = Q.shape[1]
-        for i in range(k):
-            a = Q[:, i]
-            for j in range(i):
-                Q[:, i] = Q[:, i] - ((a.T @ W @ Q[:, j]) /
-                                     (Q[:, j].T @ W @ Q[:, j])) * Q[:, j]
-            norm = np.sqrt(Q[:, i].T @ W @ Q[:, i])
-            Q[:, i] = Q[:, i] / norm
-    return Q
-
-
-def updateISVD(Q, S, R, u_l, W, tol):
-    d = Q.T @ W @ u_l
+def updateISVD(U, S, V, a_l, tol):
+    d = U.T @ a_l
     if not shape(d):
         d *= eye(1, 1)
-    e = u_l - Q @ d
-    p = sqrt(e.T @ W @ e) * eye(1, 1)
+    e = a_l - U @ d
+    p = sqrt(e.T @ e) * eye(1, 1)
 
     if p < tol:
         p = zeros((1, 1))
@@ -48,39 +49,45 @@ def updateISVD(Q, S, R, u_l, W, tol):
 
     k = shape(S)[0] if shape(S) else 1
     Y = vstack((hstack((S, d)), hstack((zeros((1, k)), p))))
-    Qy, Sy, Ry = svd(Y, full_matrices=True, compute_uv=True)
+    Uy, Sy, Vy = svd(Y, full_matrices=True, compute_uv=True)
     Sy = np.diag(Sy)
 
-    l = shape(R)[0]
+    l = shape(V)[0]
     if p < tol:
-        Q = Q @ Qy[:k, :k]
+        U = U @ Uy[:k, :k]
         S = Sy[:k, :k]
-        R = vstack((hstack((R, zeros((l, 1)))), hstack(
-            (zeros((1, k)), eye(1))))) @ Ry[:, :k]
+        V = vstack((hstack((V, zeros((l, 1)))), hstack(
+            (zeros((1, k)), eye(1))))) @ Vy[:, :k]
     else:
-        Q = hstack((Q, e)) @ Qy
+        U = hstack((U, e)) @ Uy
         S = Sy
-        R = vstack((hstack((R, zeros((l, 1)))),
-                   hstack((zeros((1, k)), eye(1))))) @ Ry
+        V = vstack((hstack((V, zeros((l, 1)))),
+                   hstack((zeros((1, k)), eye(1))))) @ Vy
 
-    return Q, S, R
+    return U, S, V
 
 
 # main algo
-def iSVD(U, W, tol=1e-15):
-    m, n = shape(U)[0], shape(U)[1]
-    u_0 = U[:, 0].reshape((m, 1))
-    Q, S, R = initializeISVD(u_0, W)
-    for i in range(1, n):
-        u_l = U[:, i].reshape((m, 1))
-        Q, S, R = updateISVD(Q, S, R, u_l, W, tol)
-        Q = modified_gram_schmidt(Q, W, tol)
-    return Q, S, R
+def iSVD(A, U=None, S=None, V=None, compute_V=True):
+    tol = 1e-09
+    m, n = shape(A)[0], shape(A)[1]
+    flag_append = False
 
+    if U is not None and S is not None and V is not None:
+        if shape(U)[0] != m:
+            raise "got a wrong dimension."
+        start_A = 0
+        compute_V = False
+    else:
+        U, S, V = initializeISVD(A[:, 0].reshape((m, 1)))
+        start_A = 1
 
-U = randn(30, 10) @ randn(10, 20)
+    for i in range(start_A, n):
+        a_l = A[:, i].reshape((m, 1))
+        U, S, V = updateISVD(U, S, V, a_l, tol)
+        U = modified_gram_schmidt(U, tol)
 
-m = shape(U)[0]
-W = eye(m, m)
-
-Q, S, R = iSVD(U=U, W=W)
+    if compute_V:
+        Vt = np.linalg.lstsq(S, U.T @ A, rcond=None)[0]
+        return U, S, Vt
+    return U, S
